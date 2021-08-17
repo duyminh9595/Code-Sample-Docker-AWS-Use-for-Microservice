@@ -1,0 +1,54 @@
+config ip inbound -> All Tcp: 172.31.0.0/16 (all private ip address)
+
+*Each EC2:
+sudo yum install docker 
+sudo service docker start
+sudo usermod -a -G docker ec2-user
+
+-e "spring.profiles.active=${enviroment of spring want to run}" in each docker run (none is default development)
+
+1/ Run RabbitMq Management
+docker run -d --name rabbit-name-management -p 15672:15672 -p 5672:5672 -p 5671:5671 rabbitmq:3-management
+_Set inbound in Aws allow 5672
+
+2/ Push ConfigServer from Local to DockerRepository and From DockerRepository to Docker in Aws EC2
+docker build --tag=config-server --force-rm=true . -f dockerfile (in path folder of dockerfile in computer)
+docker login --username=${your_user_dockerhub}
+docker tag ${imageId has been build in your Pc} ${your_user_dockerhub}/${your_repository_want_to_push}
+docker push  ${your_user_dockerhub}/${your_repository_want_to_push}
+
+-In Aws EC2
+docker run -d -p 8013:8013 -e "spring.rabbitmq.host=${local ip of rabbit mq in ec2}" -e "spring.profiles.active=git" ${your_user_dockerhub}/${your_repository_want_to_pull}
+docker logs ${container_id}
+
+3/Push Eureka Server from Local to DockerRepository and From DockerRepository to Docker in Aws EC2
+docker build --tag=eureka-server --force-rm=true . -f dockerfile
+docker tag ${imageId has been build in your Pc} ${your_user_dockerhub}/${your_repository_want_to_push}
+docker push  ${your_user_dockerhub}/${your_repository_want_to_push}
+
+-In Aws EC2
+docker run -d -p 8010:8010 -e "spring.cloud.config.uri=http://${private ip of Config Server }:8013" duyminh95/sk-eureka-server
+
+4/CloutGateway
+docker build --tag=api-gateway-server --force-rm=true . -f dockerfile
+docker tag ${imageId has been build in your Pc} ${your_user_dockerhub}/${your_repository_want_to_push}
+docker push  ${your_user_dockerhub}/${your_repository_want_to_push}
+
+-In Aws EC2
+
+docker run -d -e "spring.cloud.config.uri=http://${private ip of Config Server}:8013" -e "spring.rabbitmq.host=${local ip of rabbit mq in ec2}"  
+-e "eureka.client.serviceUrl.defaultZone = http://${user to connect eureka server}:${password to connect eureka server}@${private ip of eureka server}:8010/eureka" 
+-p 8082:8082 
+${your_user_dockerhub}/${your_repository_want_to_pull}
+
+5/Push Each Microservice from Local To DockerRepository and From DockerRepository to Docker in Aws EC2
+docker build --tag=${docker name} --force-rm=true . -f dockerfile
+docker tag ${imageId has been build in your Pc} ${your_user_dockerhub}/${your_repository_want_to_push}
+docker push  ${your_user_dockerhub}/${your_repository_want_to_push}
+
+-In Aws EC2
+
+docker run -it -d -e "spring.cloud.config.uri=http://${private ip of Config Server}:8013"  
+-e "eureka.client.serviceUrl.defaultZone=http://${user to connect eureka server}:${password to connect eureka server} @ ${private ip of eureka server}:8013/eureka" 
+--network host -e "spring.rabbitmq.host=${local ip of rabbit mq in ec2}" 
+-e "logging.file=/api-logs/${name of microserivce}.log" -v /home/ec2-user/api-logs:/api-logs -e "server.port:8989" -p 8989:8989 ${your_user_dockerhub}/${your_repository_want_to_push}
